@@ -4,15 +4,17 @@
 
 ## 概要
 
-4つのエージェントが以下の流れで動作します：
+5つのエージェントが以下の流れで動作します：
 
 ```
-Orchestrator（指揮）
+Planner（対話でプラン決定）
     │
-    ├── Builder  → MLコードを自動生成
-    ├── Evaluator → コードを実行して精度を測定
-    └── Critic   → 改善点を分析・提案
-         └── Builder（改善版を再生成） → Evaluator → ...（繰り返し）
+    └── Orchestrator（指揮）
+            │
+            ├── Builder  → MLコードを自動生成
+            ├── Evaluator → コードを実行して精度を測定
+            └── Critic   → 改善点を分析・提案
+                 └── Builder（改善版を再生成） → Evaluator → ...（繰り返し）
 ```
 
 目標精度に達するか、最大イテレーション数に到達すると終了します。
@@ -21,6 +23,7 @@ Orchestrator（指揮）
 
 | エージェント | 役割 |
 |---|---|
+| **Planner** | 実行前にユーザーと対話し、問題・目標精度・イテレーション数を決定する |
 | **Orchestrator** | 全体を指揮。次にどのエージェントを呼ぶか決定する |
 | **Builder** | scikit-learnのMLコードを生成。Criticの批評を元に改善版も生成 |
 | **Evaluator** | 生成されたコードを実際に実行し、精度（accuracy）を取得 |
@@ -46,24 +49,44 @@ pip install -r requirements.txt
 
 ## 実行方法
 
+### プランニングモード（推奨）
+
+引数なしで起動するとPlannerとの対話が始まり、何を作るか一緒に決めてからパイプラインが自動実行されます。
+
 ```bash
 python main.py
+```
+
+```
+==================================================
+  Planning Mode
+==================================================
+  作りたいMLモデルについて教えてください。
+
+Planner: どんな問題を解きたいですか？...
+
+You: ワインの品質を分類したい
+Planner: 目標精度はどのくらいにしますか？...
+You: 95%で3回
+  確認: 以下のプランで実行しますか？
+  実行する? [y/n]: y
+```
+
+### 直接実行モード
+
+`--problem` を指定するとPlannerをスキップして即実行します。
+
+```bash
+python main.py --problem "Classify wine quality" --max-iterations 3 --target-score 0.95
 ```
 
 ### オプション
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
-| `--problem` | Irisの花の分類 | 解かせるMLの問題 |
+| `--problem` | なし（省略でプランニングモード） | 解かせるMLの問題 |
 | `--max-iterations` | 5 | 最大繰り返し回数 |
 | `--target-score` | 0.97 | 早期終了する目標精度 |
-
-**例：**
-
-```bash
-# 繰り返しを3回、目標精度95%に変更
-python main.py --max-iterations 3 --target-score 0.95
-```
 
 ## 出力例
 
@@ -114,6 +137,7 @@ ml-orchestration/
 ├── requirements.txt      # 依存パッケージ
 ├── .env                  # APIキー（Gitにコミットしない）
 ├── agents/
+│   ├── planner.py        # 対話でプランを決定するエージェント
 │   ├── orchestrator.py   # 全体を指揮するエージェント
 │   ├── builder.py        # コード生成エージェント
 │   ├── evaluator.py      # コード実行・評価エージェント
