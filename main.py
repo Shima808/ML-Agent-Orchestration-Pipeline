@@ -2,7 +2,7 @@ import argparse
 import sys
 from core.types import MLPipelineState
 from core.cost_tracker import CostTracker
-from agents import orchestrator
+from agents import orchestrator, planner
 
 
 def main():
@@ -11,36 +11,43 @@ def main():
     )
     parser.add_argument(
         "--problem",
-        default="Classify Iris flower species with maximum accuracy.",
-        help="ML problem description",
+        default=None,
+        help="ML problem description (省略するとプランニングモードで起動)",
     )
     parser.add_argument(
         "--max-iterations",
         type=int,
-        default=5,
+        default=None,
         help="Maximum number of optimization iterations (default: 5)",
     )
     parser.add_argument(
         "--target-score",
         type=float,
-        default=0.97,
+        default=None,
         help="Target accuracy for early stopping (default: 0.97)",
     )
     args = parser.parse_args()
 
+    if args.problem is None:
+        problem, max_iterations, target_score = planner.run()
+    else:
+        problem = args.problem
+        max_iterations = args.max_iterations if args.max_iterations is not None else 5
+        target_score = args.target_score if args.target_score is not None else 0.97
+
     print("=" * 60)
     print("  ML Agent Orchestration Pipeline")
     print("=" * 60)
-    print(f"  Problem:        {args.problem}")
-    print(f"  Max iterations: {args.max_iterations}")
-    print(f"  Target score:   {args.target_score}")
+    print(f"  Problem:        {problem}")
+    print(f"  Max iterations: {max_iterations}")
+    print(f"  Target score:   {target_score}")
     print(f"  Model:          claude-sonnet-4-6")
     print("=" * 60 + "\n")
 
     state = MLPipelineState(
-        problem=args.problem,
-        max_iterations=args.max_iterations,
-        target_score=args.target_score,
+        problem=problem,
+        max_iterations=max_iterations,
+        target_score=target_score,
     )
     cost_tracker = CostTracker()
 
