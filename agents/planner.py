@@ -1,17 +1,18 @@
 import sys
 from core.client import get_client, MODEL
 
-SYSTEM_PROMPT = """You are an ML project planner. Your job is to have a short conversation with the user to understand what machine learning experiment they want to run, then propose a concrete plan.
+SYSTEM_PROMPT = """You are an ML project planner. Have a short conversation with the user to gather what they need, then propose a concrete plan.
 
 Gather this information:
-1. What problem/dataset to use (suggest scikit-learn built-ins if the user is unsure: iris, wine, digits, breast_cancer, diabetes)
-2. Task type (classification or regression)
-3. Target accuracy/score (suggest 0.95 for classification, 0.80 R² for regression)
-4. Number of optimization iterations (suggest 3–5)
+1. Problem description
+2. Data source — scikit-learn built-in dataset OR CSV files (if CSV, ask for the directory path and target column name)
+3. Metric to optimise — "accuracy" for classification, "auc" for binary competitions, "rmse" for regression
+4. Target score (suggest: 0.95 for accuracy, 0.85 for AUC, 0.80 for R²/RMSE)
+5. Number of iterations (suggest 3–5)
+6. Submission file path (only if CSV competition mode — ask where to save the predictions)
 
 Guidelines:
-- Be concise. Ask only what you need.
-- If the user gives enough info upfront, skip unnecessary questions.
+- Be concise. If the user gives enough info upfront, skip unnecessary questions.
 - When you have all the information, call confirm_plan with the finalized parameters.
 - Respond in the same language the user uses."""
 
@@ -32,21 +33,40 @@ TOOLS = [
                 },
                 "target_score": {
                     "type": "number",
-                    "description": "Target accuracy or score for early stopping",
+                    "description": "Target score for early stopping",
+                },
+                "metric": {
+                    "type": "string",
+                    "description": "Metric key: 'accuracy', 'auc', 'rmse', etc.",
+                },
+                "data_dir": {
+                    "type": "string",
+                    "description": "Path to directory with train.csv / test.csv. Empty string if using sklearn built-ins.",
+                },
+                "target_col": {
+                    "type": "string",
+                    "description": "Target column name in the CSV. Empty string if using sklearn built-ins.",
+                },
+                "submission_path": {
+                    "type": "string",
+                    "description": "Path to save submission.csv. Empty string if not needed.",
                 },
                 "summary": {
                     "type": "string",
                     "description": "Human-readable summary of the plan",
                 },
             },
-            "required": ["problem", "max_iterations", "target_score", "summary"],
+            "required": [
+                "problem", "max_iterations", "target_score",
+                "metric", "data_dir", "target_col", "submission_path", "summary",
+            ],
         },
     }
 ]
 
 
-def run() -> tuple[str, int, float]:
-    """Interactive planning session. Returns (problem, max_iterations, target_score)."""
+def run() -> dict:
+    """Interactive planning session. Returns a dict with all plan parameters."""
     client = get_client()
     messages = []
 
@@ -103,7 +123,15 @@ def run() -> tuple[str, int, float]:
                     "role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": "Plan confirmed."}],
                 })
-                return params["problem"], int(params["max_iterations"]), float(params["target_score"])
+                return {
+                    "problem":         params["problem"],
+                    "max_iterations":  int(params["max_iterations"]),
+                    "target_score":    float(params["target_score"]),
+                    "metric":          params.get("metric", "accuracy") or "accuracy",
+                    "data_dir":        params.get("data_dir") or None,
+                    "target_col":      params.get("target_col") or None,
+                    "submission_path": params.get("submission_path") or None,
+                }
             else:
                 messages.append({
                     "role": "user",
@@ -124,8 +152,14 @@ def _confirm_plan(params: dict) -> bool:
     print("=" * 60)
     print(f"  {params['summary']}")
     print(f"  Problem:        {params['problem']}")
+    print(f"  Metric:         {params.get('metric', 'accuracy')}")
     print(f"  Max iterations: {params['max_iterations']}")
     print(f"  Target score:   {params['target_score']}")
+    if params.get("data_dir"):
+        print(f"  Data dir:       {params['data_dir']}")
+        print(f"  Target col:     {params.get('target_col', '')}")
+    if params.get("submission_path"):
+        print(f"  Submission:     {params['submission_path']}")
     print("=" * 60)
 
     while True:

@@ -72,13 +72,15 @@ TOOLS = [
 
 def run(state: MLPipelineState, cost_tracker: CostTracker) -> MLPipelineState:
     """Run the orchestration loop until done or max_iterations reached."""
+    data_line = f"Data directory: {state.data_dir}\n" if state.data_dir else ""
     messages = [
         {
             "role": "user",
             "content": (
                 f"Problem: {state.problem}\n"
-                f"Target accuracy: {state.target_score}\n"
-                f"Max iterations: {state.max_iterations}\n\n"
+                f"Target {state.metric}: {state.target_score}\n"
+                f"Max iterations: {state.max_iterations}\n"
+                f"{data_line}"
                 "Begin the ML optimization pipeline."
             ),
         }
@@ -137,7 +139,7 @@ def run(state: MLPipelineState, cost_tracker: CostTracker) -> MLPipelineState:
         elif tool_name == "call_builder":
             use_critique = tool_input.get("use_critique", False)
             critique_to_pass = state.current_critique if use_critique else ""
-            code, approach = builder.run(state.problem, critique_to_pass, cost_tracker)
+            code, approach = builder.run(state, critique_to_pass, cost_tracker)
             state.current_code = code
             current_approach = approach
             tool_result = f"Code generated. Approach: {approach}"
@@ -146,9 +148,9 @@ def run(state: MLPipelineState, cost_tracker: CostTracker) -> MLPipelineState:
             if not state.current_code:
                 tool_result = "Error: no code to evaluate. Call call_builder first."
             else:
-                metrics = evaluator.run(state.current_code, cost_tracker)
+                metrics = evaluator.run(state.current_code, cost_tracker, state)
                 state.current_metrics = metrics
-                accuracy = metrics.get("accuracy", 0.0)
+                score = metrics.get(state.metric, 0.0)
                 tool_result = json.dumps(metrics)
 
                 # After evaluator, finalize this iteration
@@ -164,13 +166,13 @@ def run(state: MLPipelineState, cost_tracker: CostTracker) -> MLPipelineState:
                     cost_usd=iter_cost,
                 )
                 state.history.append(iter_result)
-                cost_tracker.print_iteration_summary(iteration, accuracy)
+                cost_tracker.print_iteration_summary(iteration, score)
                 iter_input_tokens = 0
                 iter_output_tokens = 0
                 iter_cost = 0.0
 
-                if accuracy >= state.target_score:
-                    print(f"[Orchestrator] Target accuracy {state.target_score} reached!")
+                if score >= state.target_score:
+                    print(f"[Orchestrator] Target {state.metric} {state.target_score} reached!")
                     messages.append({
                         "role": "user",
                         "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": tool_result}],
@@ -210,19 +212,22 @@ def run(state: MLPipelineState, cost_tracker: CostTracker) -> MLPipelineState:
 def _build_status(state: MLPipelineState, iteration: int) -> str:
     if not state.history:
         return ""
+    m = state.metric
     latest = state.history[-1]
+    best = max(r.metrics.get(m, 0) for r in state.history)
     return (
         f"[Status] Iteration {iteration} done. "
-        f"Best accuracy: {max(r.metrics.get('accuracy', 0) for r in state.history):.4f}. "
-        f"Latest: {latest.metrics.get('accuracy', 0):.4f} ({latest.approach})"
+        f"Best {m}: {best:.4f}. "
+        f"Latest: {latest.metrics.get(m, 0):.4f} ({latest.approach})"
     )
 
 
 def _build_history_summary(state: MLPipelineState) -> str:
     if not state.history:
         return ""
+    m = state.metric
     lines = []
     for r in state.history:
-        acc = r.metrics.get("accuracy", 0.0)
-        lines.append(f"- Iter {r.iteration}: {r.approach} → accuracy={acc:.4f}")
+        score = r.metrics.get(m, 0.0)
+        lines.append(f"- Iter {r.iteration}: {r.approach} → {m}={score:.4f}")
     return "\n".join(lines)
